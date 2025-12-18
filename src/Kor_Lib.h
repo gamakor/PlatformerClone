@@ -15,6 +15,7 @@
 //#####################################
 #ifdef _WIN32
 #define DEBUG_BREAK() __debugbreak()
+#define EXPORT_FN __declspec(dllexport)
 #endif
 
 #define BIT(x) 1 << (x)
@@ -224,7 +225,7 @@ void WriteFile(char* filePath,char* buffer,int fileSize)
     fclose(file);
 }
 
-bool CopyFile(char* fileName,char* outputName,char* buffer)
+bool copy_file(char* fileName,char* outputName,char* buffer)
 {
     int fileSize = 0;
     char* data = ReadFile(fileName,&fileSize,buffer);
@@ -246,7 +247,7 @@ bool CopyFile(char* fileName,char* outputName,char* buffer)
     return true;
 }
 
-bool CopyFile(char* fileName,char* outputName,BumpAllocator* bumpAllocator)
+bool copy_file(char* fileName,char* outputName,BumpAllocator* bumpAllocator)
 {
     int fileSize = 0;
     long tempFileSize = GetFileSize(fileName);
@@ -254,10 +255,47 @@ bool CopyFile(char* fileName,char* outputName,BumpAllocator* bumpAllocator)
     if (tempFileSize)
     {
         char* buffer = BumpAllocate(bumpAllocator, tempFileSize+1);
-        return CopyFile(fileName,outputName,buffer);
+        return copy_file(fileName,outputName,buffer);
     }
     return false;
 }
+
+//#####################################
+//          Math
+//#####################################
+
+struct Vec2 {
+    float x,y;
+};
+
+struct IVec2 {
+    int x,y;
+};
+
+struct Vec4 {
+    union {
+        float values[4];
+        struct {
+          float x,y,z,w;
+        };
+        struct {
+            float r,g,b,a;
+        };
+    };
+};
+
+struct Mat4 {
+    union {
+        Vec4 values[4];
+        struct {
+            float ax,bx,cx,dx;
+            float ay,by,cy,dy;
+            float az,bz,cz,dz;
+            float aw,bw,cw,dw;
+        };
+    };
+};
+
 
 
 

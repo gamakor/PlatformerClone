@@ -4,13 +4,14 @@
 #pragma once
 #include "platform.h"
 #include "Kor_Lib.h"
+#include "input.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
-#include "3rd Party Lib/wglext.h"
+#include "../3rd Party Lib/wglext.h"
 #define GL_GLEXT_PROTOTYPES
-#include "3rd Party Lib/glcorearb.h"
+#include "../3rd Party Lib/glcorearb.h"
 
 //Windows Globals
 static HWND window;
@@ -37,8 +38,8 @@ LRESULT CALLBACK WindowsWindowCallback(HWND window, UINT msg,
         {
             RECT rect = {};
             GetClientRect(window, &rect);
-            input.screenSizeX = rect.right - rect.left;
-            input.screenSizeY = rect.bottom - rect.top;
+            input->screenSizeX = rect.right - rect.left;
+            input->screenSizeY = rect.bottom - rect.top;
         } break;
 
         default:
@@ -264,4 +265,25 @@ void* PlatformLoadGLFunction(char* funcName)
 void PlatformSwapBuffers()
 {
     SwapBuffers(dc);
+}
+
+void* platform_load_dynamic_library(char* dll)
+{
+    HMODULE result = LoadLibraryA(dll);
+    SM_ASSERT(result, "Failed to load dynamic library: %s",dll);
+
+    return result;
+}
+void* platform_load_dynamic_function(void* dll,char* funName)
+{
+    FARPROC proc = GetProcAddress((HMODULE)dll, funName);
+    SM_ASSERT(proc, "Failed to load dynamic library function: %s",funName);
+    return (void*)proc;
+}
+bool platform_free_dynamic_library(void* dll)
+{
+    BOOL freeResult = FreeLibrary((HMODULE)dll);
+    SM_ASSERT(freeResult, "Failed to free library");
+
+    return (bool)freeResult;
 }

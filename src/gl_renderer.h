@@ -4,7 +4,7 @@
 #pragma once
 #ifndef PLATFORMERCLONE_GL_RENDERER_H
 #include "Kor_Lib.h"
-#include "3rd Party Lib/glcorearb.h"
+#include "../3rd Party Lib/glcorearb.h"
 #include "platform.h"
 #define PLATFORMERCLONE_GL_RENDERER_H
 

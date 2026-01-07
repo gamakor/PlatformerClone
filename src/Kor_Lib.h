@@ -6,6 +6,8 @@
 #ifndef PLATFORMERCLONE_KOR_LIB_H
 #define PLATFORMERCLONE_KOR_LIB_H
 
+
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <sys/stat.h>
@@ -18,6 +20,7 @@
 #define EXPORT_FN __declspec(dllexport)
 #endif
 
+#define b8 char
 #define BIT(x) 1 << (x)
 #define KB(x) ((unsigned long long)1024 * x)
 #define MB(x) ((unsigned long long)1024 * KB(x))
@@ -92,6 +95,51 @@ SM_ERROR("Assertion HIT!")    \
 }                               \
 }
 
+// #############################################################################
+//                           Array
+// #############################################################################
+template<typename T, int N>
+struct Array
+{
+    static constexpr int maxElements = N;
+    int count = 0;
+    T elements[N];
+
+    T& operator[](int idx)
+    {
+        SM_ASSERT(idx >= 0, "idx negative!");
+        SM_ASSERT(idx < count, "Idx out of bounds!");
+        return elements[idx];
+    }
+
+    int add(T element)
+    {
+        SM_ASSERT(count < maxElements, "Array Full!");
+        elements[count] = element;
+        return count++;
+    }
+
+    void remove_idx_and_swap(int idx)
+    {
+        SM_ASSERT(idx >= 0, "idx negative!");
+        SM_ASSERT(idx < count, "idx out of bounds!");
+        elements[idx] = elements[--count];
+    }
+
+    void clear()
+    {
+        count = 0;
+    }
+
+    bool is_full()
+    {
+        return count == N;
+    }
+};
+
+
+
+
 //#####################################
 //          BUMP ALLOCATOR
 //#####################################
@@ -133,7 +181,7 @@ char* BumpAllocate(BumpAllocator* allocator, size_t size)
 //          FILE I/O
 //#####################################
 
-long long GetTimeStamp(char* filename)
+long long GetTimeStamp(const char* filename)
 {
     struct stat st;
     stat(filename, &st);
@@ -263,40 +311,235 @@ bool copy_file(char* fileName,char* outputName,BumpAllocator* bumpAllocator)
 //#####################################
 //          Math
 //#####################################
+int sign (int x)
+{
+    return (x>=0)? 1 : -1;
+}
+float sign (float x)
+{
+    return (x>=0)? 1.0f : -1.0f;
+}
+long long max(long long a, long long b)
+{
+    if (a > b)
+    {
+        return a;
+    }
+    return b;
+}
+
+float max (float a, float b)
+{
+    if (a > b)
+    {
+        return a;
+    }
+    return b;
+}
+
+float min (float a, float b)
+{
+    if (a < b)
+    {
+        return a;
+    }
+    return b;
+}
+
+float approach(float current, float target, float increase)
+{
+    if (current < target)
+    {
+        return min(current + increase, target);
+    }
+    return max(current - increase, target);
+}
+
+
+
+
+float lerps(float a, float b, float t)
+{
+    return a + (b - a) * t;
+}
+
 
 struct Vec2 {
     float x,y;
+
+    Vec2 operator/(float scalar)
+    {
+        return {x/scalar,y/scalar};
+    }
+
+    Vec2 operator-(Vec2 other)
+    {
+        return {x-other.x,y-other.y};
+    }
 };
 
 struct IVec2 {
     int x,y;
+
+    IVec2 operator-(IVec2 other)
+    {
+        return {x-other.x,y-other.y};
+    }
+
+    IVec2& operator+=(int other)
+    {
+
+        x+=other;
+        y+=other;
+        return *this;
+    }
+    IVec2& operator-=(int other)
+    {
+
+        x-=other;
+        y-=other;
+        return *this;
+    }
+
+    IVec2 operator / (int scalar)
+    {
+        return {x/scalar,y/scalar};
+    }
+
 };
 
-struct Vec4 {
-    union {
+
+Vec2 vec_2(IVec2 v)
+{
+    return Vec2{(float)v.x,(float)v.y};
+}
+
+Vec2 lerps(Vec2 a , Vec2 b, float t)
+{
+    Vec2 result = {};
+    result.x = lerps(a.x,b.x,t);
+    result.y = lerps(a.y,b.y,t);
+    return result;
+}
+
+IVec2 lerps(IVec2 a , IVec2 b, float t)
+{
+    IVec2 result = {};
+    result.x = (int)floorf(lerps((float)a.x,(float)b.x,t));
+    result.y = (int)floorf(lerps((float)a.y,(float)b.y,t));
+    return result;
+}
+
+struct Vec4
+{
+    union
+    {
         float values[4];
-        struct {
-          float x,y,z,w;
+        struct
+        {
+            float x;
+            float y;
+            float z;
+            float w;
         };
-        struct {
-            float r,g,b,a;
+
+        struct
+        {
+            float r;
+            float g;
+            float b;
+            float a;
         };
     };
+    float& operator[](int idx)
+    {
+        return values[idx];
+    }
 };
 
-struct Mat4 {
-    union {
+struct Mat4
+{
+    union
+    {
         Vec4 values[4];
-        struct {
-            float ax,bx,cx,dx;
-            float ay,by,cy,dy;
-            float az,bz,cz,dz;
-            float aw,bw,cw,dw;
+        struct
+        {
+            float ax;
+            float bx;
+            float cx;
+            float dx;
+
+            float ay;
+            float by;
+            float cy;
+            float dy;
+
+            float az;
+            float bz;
+            float cz;
+            float dz;
+
+            float aw;
+            float bw;
+            float cw;
+            float dw;
         };
     };
+
+    Vec4& operator[](int col)
+    {
+        return values[col];
+    }
 };
 
 
+Mat4 orthographic_projection(float left, float right, float top, float bottom)
+{
+    Mat4 result = {};
+    result.aw = -(right + left) / (right - left);
+    result.bw = (top + bottom) / (top - bottom);
+    result.cw = 0.0f; // Near Plane
+    result[0][0] = 2.0f / (right - left);
+    result[1][1] = 2.0f / (top - bottom);
+    result[2][2] = 1.0f / (1.0f - 0.0f); // Far and Near
+    result[3][3] = 1.0f;
 
+    return result;
+}
+
+struct Rect
+{
+    Vec2 position;
+    Vec2 size;
+};
+
+struct IRect {
+    IVec2 position;
+    IVec2 size;
+};
+
+bool point_in_rect(Vec2 point, Rect rect)
+{
+    return (point.x >= rect.position.x &&
+            point.x <= rect.position.x + rect.size.x &&
+            point.y >= rect.position.y &&
+            point.y <= rect.position.y + rect.size.y);
+}
+
+bool point_in_rect(Vec2 point, IRect rect)
+{
+    return (point.x >= rect.position.x &&
+            point.x <= rect.position.x + rect.size.x &&
+            point.y >= rect.position.y &&
+            point.y <= rect.position.y + rect.size.y);
+}
+
+bool rect_collision(IRect a, IRect b)
+{
+    return a.position.x < b.position.x  + b.size.x && // Collision on Left of a and right of b
+           a.position.x + a.size.x > b.position.x  && // Collision on Right of a and left of b
+           a.position.y < b.position.y  + b.size.y && // Collision on Bottom of a and Top of b
+           a.position.y + a.size.y > b.position.y;    // Collision on Top of a and Bottom of b
+}
 
 #endif //PLATFORMERCLONE_KOR_LIB_H

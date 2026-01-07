@@ -27,7 +27,14 @@ struct GLContext {
     GLuint programID;
     GLuint textureID;
     GLuint transformSBOID;
-    GLint screenSizeID;
+    GLuint screenSizeID;
+    GLuint orthoProjectionID;
+
+
+    long long textureTimestamp;
+    long long shaderTimestamp;
+
+
 
 };
 
@@ -53,6 +60,38 @@ static void APIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GL
         SM_TRACE((char*)message);
     }
 }
+
+GLuint gl_create_shader(int shaderType, char* shaderPath, BumpAllocator* transientStorage)
+{
+    int fileSize =0;
+    char* vertShader = ReadFile(shaderPath,&fileSize,transientStorage);
+    if (!vertShader)
+    {
+        SM_ASSERT(false,"Failed to load shader: %s", shaderPath);
+    }
+    GLuint shaderID = glCreateShader(shaderType);
+    glShaderSource(shaderID, 1, &vertShader, nullptr);
+    glCompileShader(shaderID);
+
+    //test if shader complied successfully
+    {
+        int success;
+        char shaderLog[2048] ={};
+
+        glGetShaderiv(shaderID, GL_COMPILE_STATUS, &success);
+        if (!success)
+        {
+            glGetShaderInfoLog(shaderID, 2048, NULL, shaderLog);
+            SM_ASSERT(false,"Failed to compile shader: %s\n",shaderLog);
+            return 0;
+        }
+    }
+
+    return shaderID;
+}
+
+
+
 bool InitGL(BumpAllocator* transientStorage)
 {
     LoadOpenGLFunctions();
@@ -61,50 +100,22 @@ bool InitGL(BumpAllocator* transientStorage)
     glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
     glEnable(GL_DEBUG_OUTPUT);
 
-    GLuint vertexShaderID = glCreateShader(GL_VERTEX_SHADER);
-    GLuint fragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
+    //need to fix this so it works with in the project only and doesnt need an exact path
 
-    int fileSize =0;
-    char* vertShader = ReadFile("C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.vert",&fileSize,transientStorage);
-    char* fragShader = ReadFile("C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.frag",&fileSize,transientStorage);
+    GLuint vertexShaderID = gl_create_shader(GL_VERTEX_SHADER,
+        "C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.vert",transientStorage);
+    GLuint fragmentShaderID = gl_create_shader(GL_FRAGMENT_SHADER,
+        "C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.frag",transientStorage);
 
-    if (!vertShader || !fragShader)
+    if (!vertexShaderID || !fragmentShaderID)
     {
         SM_ASSERT(false,"Failed to load shaders");
         return false;
     }
 
-    glShaderSource(vertexShaderID, 1, &vertShader, nullptr);
-    glShaderSource(fragmentShaderID, 1, &fragShader, nullptr);
-
-    glCompileShader(vertexShaderID);
-    glCompileShader(fragmentShaderID);
-
-    //Checks success of vert shader
-    {
-        int success;
-
-        char shaderInfoLog[512];
-        glGetShaderiv(vertexShaderID, GL_COMPILE_STATUS, &success);
-        if (!success)
-        {
-            glGetShaderInfoLog(vertexShaderID, 512, NULL, shaderInfoLog);
-            SM_ASSERT(false,"Failed to compile vertex shader: %s\n",shaderInfoLog);
-        }
-    }
-
-    //Check success of frag shader
-    {
-        int success;
-
-        char fragInfoLog[512];
-        glGetShaderiv(fragmentShaderID, GL_COMPILE_STATUS, &success);
-        if (!success)
-        {
-            glGetShaderInfoLog(fragmentShaderID, 512, NULL, fragInfoLog);
-            SM_ASSERT(false,"Failed to compile vertex shader: %s\n",fragInfoLog);
-        }
-    }
+    long long timestampVert = GetTimeStamp("C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.vert");
+    long long timestampFrag = GetTimeStamp("C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.frag");
+    glContext.shaderTimestamp = max(timestampVert,timestampFrag);
 
     glContext.programID = glCreateProgram();
     glAttachShader(glContext.programID, vertexShaderID);
@@ -148,6 +159,8 @@ bool InitGL(BumpAllocator* transientStorage)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
                     GL_RGBA, GL_UNSIGNED_BYTE, data);
 
+        glContext.textureTimestamp = GetTimeStamp(TEXTUREPATH);
+
         stbi_image_free(data);
     }
 
@@ -156,8 +169,8 @@ bool InitGL(BumpAllocator* transientStorage)
     {
         glGenBuffers(1,&glContext.transformSBOID);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,glContext.transformSBOID);
-        glBufferData(GL_SHADER_STORAGE_BUFFER,sizeof(Transform)* MAX_TRANSFORMS,
-                            renderData->transforms,GL_DYNAMIC_DRAW);
+        glBufferData(GL_SHADER_STORAGE_BUFFER,sizeof(Transform)* renderData->transforms.maxElements,
+                            renderData->transforms.elements,GL_DYNAMIC_DRAW);
 
     }
 
@@ -165,6 +178,9 @@ bool InitGL(BumpAllocator* transientStorage)
 
     {
         glContext.screenSizeID = glGetUniformLocation(glContext.programID, "screenSize");
+        glContext.orthoProjectionID = glGetUniformLocation(glContext.programID, "orthoProjection");
+
+
     }
 
     glEnable(GL_FRAMEBUFFER_SRGB);
@@ -180,27 +196,91 @@ bool InitGL(BumpAllocator* transientStorage)
     return true;
 }
 
-void GLRender()
+void GLRender(BumpAllocator* transientStorage)
 {
+    //texture hot reloading
+    {
+        long long currentTimestamp = GetTimeStamp(TEXTUREPATH);
+
+        if (currentTimestamp > glContext.textureTimestamp)
+        {
+           glActiveTexture(GL_TEXTURE0);
+            int width, height, nrChannels;
+            char* data = (char*)stbi_load(TEXTUREPATH, &width, &height, &nrChannels, 4);
+            if (data)
+            {
+                glContext.textureTimestamp = currentTimestamp;
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+                stbi_image_free(data);
+            }
+        }
+    }
+    //shader hot reloading
+    {
+        long long timestampVert = GetTimeStamp("C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.vert");
+        long long timestampFrag = GetTimeStamp("C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.frag");
+        if (timestampVert > glContext.shaderTimestamp || timestampFrag > glContext.shaderTimestamp)
+        {
+
+            GLuint vertexShaderID = gl_create_shader(GL_VERTEX_SHADER, "C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.vert", transientStorage);
+            GLuint fragmentShaderID = gl_create_shader(GL_FRAGMENT_SHADER, "C:/Users/ddcha/CLionProjects/PlatformerClone/assets/shaders/quad.frag", transientStorage);
+
+            if (!vertexShaderID || !fragmentShaderID)
+            {
+                SM_ASSERT(false,"Failed to load shaders");
+                return;
+            }
+
+            glAttachShader(glContext.programID, vertexShaderID);
+            glAttachShader(glContext.programID, fragmentShaderID);
+            glLinkProgram(glContext.programID);
+
+            glDetachShader(glContext.programID, vertexShaderID);
+            glDetachShader(glContext.programID, fragmentShaderID);
+            glDeleteShader(vertexShaderID);
+            glDeleteShader(fragmentShaderID);
+
+            glContext.shaderTimestamp = max(timestampVert,timestampFrag);
+        }
+    }
+
+
+
+
+
+
+
+
     glClearColor(119.0f/225.0f, 33.0f/255.0f, 110.0f/255.0f, 1.0f);
-    glClearDepth(0.0f);
+    glClearDepth(-1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glViewport(0, 0, input->screenSizeX, input->screenSizeY);
+    glViewport(0, 0, input->screenSize.x, input->screenSize.y);
 
 
     //Copy screen Size to the GPU
-    Vec2 screenSize = {(float)input->screenSizeX, (float)input->screenSizeY};
+    Vec2 screenSize = {(float)input->screenSize.x, (float)input->screenSize.y};
     glUniform2fv(glContext.screenSizeID, 1, &screenSize.x);
+
+    OrthographicCamera2D camera = renderData->gameCamera;
+    Mat4 orthoProjection = orthographic_projection(camera.position.x - camera.dimensions.x / 2.0f,
+                                                   camera.position.x + camera.dimensions.x / 2.0f,
+                                                   camera.position.y - camera.dimensions.y / 2.0f,
+                                                   camera.position.y + camera.dimensions.y / 2.0f);
+    glUniformMatrix4fv(glContext.orthoProjectionID, 1, GL_FALSE, &orthoProjection.ax);
 
     //Opaque Objects
     {
-        //Copy Transforms to the GPU
-        glBufferSubData(GL_SHADER_STORAGE_BUFFER,0,sizeof(Transform)* renderData->transformCount,
-                        renderData->transforms);
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData->transformCount);
 
-        //reset for the next frame
-        renderData->transformCount = 0;
+
+
+            // Use .data() to get the pointer to the array
+            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(Transform) * renderData->transforms.count,
+                            renderData->transforms.elements);
+
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData->transforms.count);
+
+            // Clear the vector for the next frame
+            renderData->transforms.clear();
+        }
     }
 
-}

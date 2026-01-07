@@ -7,13 +7,15 @@
 #define GL_GLEXT_PROTOTYPES
 #include "../3rd Party Lib/glcorearb.h"
 
+KeyCodeID KeyCodeLookupTable[KEY_COUNT];
+
 //Windows Platform
 #ifdef _WIN32
 #include "win32_platform.cpp"
 #endif
 
 #include "gl_renderer.cpp"
-
+#include <chrono>
 // #############################################################################
 //                           Game DLL Stuff
 // #############################################################################
@@ -24,6 +26,8 @@ static update_game_type* update_game_ptr;
 // #############################################################################
 //                           Cross Platform Functions
 // #############################################################################
+
+double get_delta_time();
 void reload_game_dll(BumpAllocator* transientStorage);
 
 
@@ -31,7 +35,9 @@ void reload_game_dll(BumpAllocator* transientStorage);
 
 int main()
 {
-
+    //init timestamp
+    get_delta_time();
+    
     BumpAllocator transientStorage = MakeBumpAllocator(MB(50));
     BumpAllocator persistentStorage = MakeBumpAllocator(MB(50));
 
@@ -50,17 +56,27 @@ int main()
         return -1;
     }
 
-    input->screenSizeX = 1280;
-    input->screenSizeY = 720;
+    gameState = (GameState*)BumpAllocate(&persistentStorage,sizeof(GameState));
+    {
+        if (!gameState)
+        {
+            SM_ERROR("Failed to allocate gamestate");
+            return -1;
+        }
+    }
+
+    platform_fill_keycode_lookup_table();
     PlatformCreateWindow("Platformer Clone", 1280, 720);
+    platform_set_vsync(true);
 
     InitGL(&transientStorage);
     while(isRunning)
     {
+        float dt =get_delta_time();
         reload_game_dll(&transientStorage);
         PlatformUpdateWindow();
-        GameUpdate(renderData,input);
-        GLRender();
+        GameUpdate(gameState,renderData,input,dt);
+        GLRender(&transientStorage);
         PlatformSwapBuffers();
 
         transientStorage.used = 0;
@@ -68,11 +84,22 @@ int main()
     return 0;
 }
 
-void GameUpdate(RenderData* renderDataIn,Input* inputIN)
+void GameUpdate(GameState* gameStateIn, RenderData* renderDataIn,Input* inputIN,float deltaTime)
 {
-    update_game_ptr(renderDataIn,inputIN);
+    update_game_ptr(gameStateIn,renderDataIn,inputIN,deltaTime);
 }
+double get_delta_time()
+{
+    //only executed once when entering the function (static)
 
+    static auto lastTime = std::chrono::steady_clock::now();
+    auto currentTime = std::chrono::steady_clock::now();
+
+    //seconds
+    double delta = std::chrono::duration<double>(currentTime - lastTime).count();
+    lastTime = currentTime;
+    return delta;
+}
 void reload_game_dll(BumpAllocator* transientStorage)
 {
     static void* gameDLL;

@@ -22,6 +22,7 @@ add_executable(PlatformerClone
         src/render_interface.h
         src/assets.h
         src/game.h
+        src/sound.h
 )
 
 if(WIN32)
